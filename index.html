@@ -1,0 +1,40 @@
+<!DOCTYPE html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Poppins:wght@400;600;700&display=swap" rel="stylesheet"><link rel="stylesheet" href="style.css"><title>¿ÉXITO O FRACASO?</title></head>
+<body><main id="a"></main>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script><script src="config.js"></script><script src="game.js"></script>
+<script>
+let pid=localStorage.pid,name=localStorage.pname,G=null,mine={},key='',sel=null;
+const A=$('#a');
+function put(h){A.classList.remove('in');void A.offsetWidth;A.innerHTML=h;A.classList.add('in')}
+const lab=(p,r)=>r===1?(p>=9?'¡Gran elección! 🔥':p>=7?'Buena elección 👍':'Elección floja ⚠️'):(p>=16?'¡Excelente! 🔥':p>=10?'Buena idea 👍':'Decisión arriesgada ⚠️');
+async function refresh(){
+ try{G=await getState()}catch(e){put('<div class="hero"><p class="msg">Sin conexión… reintentando</p></div>');key='';return}
+ if(pid&&G.status==='lobby'){const{data}=await sb.from('players').select('id').eq('id',pid);if(!data||!data.length){localStorage.removeItem('pid');pid=null}}
+ if(pid){const{data}=await sb.rpc('my_answers',{p:pid});mine={};(data||[]).forEach(x=>mine[x.round]=x)}
+ draw()}
+function join(){put(`<div class="hero"><div class="kicker">De Wattpad al cine</div><h1>¿ÉXITO<br>O FRACASO?</h1><p class="sub">Escribe tu nombre para jugar</p><input id="nm" maxlength="20" placeholder="Tu nombre" autocomplete="off"><br><button class="btn" onclick="go()">▶ ENTRAR</button><p class="msg" id="er"></p></div>`)}
+async function go(){const n=$('#nm').value.trim();if(!n)return;
+ const{data,error}=await sb.rpc('join_player',{n});if(error){$('#er').textContent='Error: '+error.message;return}
+ pid=data;name=n;localStorage.pid=pid;localStorage.pname=n;key='';refresh()}
+async function draw(){
+ if(!pid){if(key!=='join'){key='join';join()}return}
+ const r=G.round,m=mine[r],st=G.status,tu=st==='open'&&left(G)===0;
+ let P=[],x='';
+ if(['lobby','revealed','final'].includes(st)){P=await getPlayers();x=P.length+':'+((P.find(p=>p.id===pid)||{}).score)}
+ const k=[st,r,m?m.choice:'n',tu,x,m?m.points:''].join('|');
+ if(k===key)return;key=k;sel=null;
+ const R=ROUNDS[r-1];
+ if(st==='lobby')return put(`<div class="hero"><h2>¡Hola, ${esc(name)}! 🎬</h2><p class="sub">Ya estás dentro. Espera: el juego va a empezar.</p><div class="pill">👥 ${P.length} jugadores</div></div>`);
+ if(st==='ready')return put(`<div class="hero"><div class="kicker">Ronda ${r} de 5</div><h2>${R.k}</h2><p class="sub">¡Prepárate! La pregunta sale ahora…</p></div>`);
+ if(st==='open'&&!m&&!tu)return put(`<div class="bar2"><span class="kicker">Ronda ${r}/5</span><span class="pill">⏱ <b id="t">${left(G)}</b></span></div><h2>${R.q}</h2><p class="sub" style="margin:0">${R.h}</p><div class="col">${R.o.map((o,i)=>`<button class="opt" onclick="ans(${i})">${r===1?poster(o):'<div class="big-e">'+o.e+'</div>'}<div class="od"><b>${o.t}</b><span>${o.s}</span></div></button>`).join('')}</div>`);
+ if(m&&(st==='open'||st==='closed'))return put(`<div class="hero"><div class="big-e">✅</div><h2>¡Respuesta enviada!</h2><p class="sub">Elegiste: <b>${R.o[m.choice].t}</b><br>Mira la pantalla grande…</p></div>`);
+ if(st==='open'||st==='closed')return put(`<div class="hero"><div class="big-e">⏰</div><h2>Se acabó el tiempo</h2><p class="sub">No enviaste respuesta en esta ronda.</p></div>`);
+ const rank=P.findIndex(q=>q.id===pid)+1,me=P[rank-1]||{score:0};
+ if(st==='revealed'){const p=m?m.points:0;return put(`<div class="hero"><div class="kicker">Resultado · Ronda ${r}</div><div class="score">+${p}</div><h2>${m?lab(p,r):'Sin respuesta 😴'}</h2><div class="concept">💡 ${R.c}</div><p class="sub">Total: <b>${me.score} puntos</b> · Lugar #${rank} de ${P.length}</p></div>`)}
+ if(st==='final')return put(`<div class="hero"><div class="kicker">Ranking final</div><h2>🏆 ¡Gracias por jugar!</h2>${P.slice(0,3).map((p,i)=>`<div class="rk ${p.id===pid?'me':''}"><span>${MED[i]}</span><b>${esc(p.name)}</b><span>${p.score}</span></div>`).join('')}<p class="sub" style="margin-top:14px">Tu lugar: <b>#${rank}</b> · <b>${me.score} puntos</b></p></div>`);
+}
+async function ans(i){if(sel!==null)return;sel=i;
+ document.querySelectorAll('.opt').forEach((b,k)=>b.classList.add(k===i?'sel':'dim'));
+ const{error}=await sb.rpc('submit_answer',{p:pid,r:G.round,c:i});if(error)sel=null;key='';refresh()}
+setInterval(()=>{if(!G||G.status!=='open')return;const t=$('#t');if(t)t.textContent=left(G);if(left(G)===0&&key.split('|')[3]==='false')draw()},250);
+live(refresh);refresh();
+</script></body></html>

@@ -1,0 +1,23 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Poppins:wght@400;600;700&display=swap" rel="stylesheet"><link rel="stylesheet" href="style.css"><title>QA tool</title><style>body{padding:20px;max-width:760px;margin:0 auto}pre{background:#000;padding:12px;border-radius:10px;min-height:240px;white-space:pre-wrap;font-size:.85rem}input{width:120px;margin:4px;font-size:1rem}.btn{font-size:1rem;margin:4px;padding:10px 18px}</style></head><body>
+<h2>QA / test mode</h2><p class="sub">Not a demo. This creates <b>real rows</b> in your database through the same functions phones use (names "TEST n"). Use it to check joining, answering, scoring and realtime. Remove them afterwards.</p>
+<input id="pin" type="password" placeholder="Presenter PIN"><input id="n" type="number" value="10" min="1" max="60">
+<div><button class="btn" onclick="add()">Join N test players</button><button class="btn" onclick="auto=!auto;log('auto-answer '+(auto?'ON':'OFF'))">Toggle auto-answer</button>
+<button class="btn" onclick="selfcheck()">Security check</button><button class="btn" onclick="rm()">Remove test players</button></div>
+<p class="sub">Realtime socket: <b id="rt">…</b> · game events received: <b id="ev">0</b> <span style="color:var(--mu)">(press presenter buttons in another tab: this must increase)</span></p><pre id="log"></pre>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script><script src="config.js"></script><script src="game.js"></script>
+<script>
+const bots=[];let auto=false,ev=0,G=null,seen={};
+const log=m=>{$('#log').textContent=new Date().toLocaleTimeString()+' '+m+'\n'+$('#log').textContent};
+sb.channel('qa').on('postgres_changes',{event:'*',schema:'public',table:'game'},()=>{ev++;$('#ev').textContent=ev}).subscribe(s=>$('#rt').textContent=s);
+async function add(){const n=+$('#n').value;let ok=0;for(let i=0;i<n;i++){const{data,error}=await sb.rpc('join_player',{n:'TEST '+(bots.length+1)});if(error){log('join failed: '+error.message);break}bots.push({id:data});ok++}log('joined '+ok+' test players (total '+bots.length+')')}
+async function rm(){const{error}=await sb.rpc('admin_delete_tests',{pin:$('#pin').value});log(error?'remove failed: '+error.message:'test players removed');if(!error){bots.length=0;seen={}}}
+async function selfcheck(){const t=async(n,f,okf)=>{try{const r=await f();log((okf(r)?'PASS ':'FAIL ')+n)}catch(e){log('PASS '+n+' (blocked)')}};
+ await t('browser cannot read scoring matrix',async()=>await sb.from('scoring').select('*'),r=>r.error||!r.data||!r.data.length);
+ await t('browser cannot read answers',async()=>await sb.from('answers').select('*'),r=>r.error||!r.data||!r.data.length);
+ await t('browser cannot insert players directly',async()=>await sb.from('players').insert({name:'x'}),r=>!!r.error);
+ await t('browser cannot update game directly',async()=>await sb.from('game').update({round:(G||{round:0}).round}).eq('id',1).select(),r=>r.error||!r.data||!r.data.length);
+ await t('wrong PIN rejected',async()=>await sb.rpc('admin_set',{pin:'wrong',st:'lobby',rnd:0,secs:0}),r=>!!r.error)}
+setInterval(async()=>{try{G=await getState()}catch(e){return}
+ if(auto&&G.status==='open')bots.forEach(b=>{const k=b.id+G.round;if(seen[k])return;seen[k]=1;setTimeout(async()=>{const c=Math.floor(Math.random()*3);const{error}=await sb.rpc('submit_answer',{p:b.id,r:G.round,c});log((error?'ERR ':'OK  ')+'bot answered round '+G.round+' choice '+c+(error?' '+error.message:''))},Math.random()*4000)});
+ if(G.status==='revealed'&&bots.length&&!seen['v'+G.round]){seen['v'+G.round]=1;const{data}=await sb.rpc('my_answers',{p:bots[0].id});const x=(data||[]).find(a=>a.round===G.round);log('round '+G.round+' revealed: TEST 1 scored '+(x?x.points:'no answer')+' pts')}},1000);
+</script></body></html>
